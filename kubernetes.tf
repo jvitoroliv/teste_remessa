@@ -1,40 +1,49 @@
-//cria um namespace no cluster
+# Kubernetes resources: namespace, deployment, service, and ingress
+
+# Create a dedicated namespace for the application
+# NOTE: This depends_on must be commented out before running terraform destroy
 resource "kubernetes_namespace" "remessa" {
-//Este depends_on deve ser comentado antes de executar o terraform destroy
   depends_on = [module.eks]
-  
+
   metadata {
     name = "remessa"
   }
 }
 
-//cria o deploy no namespace
+# Nginx deployment
 resource "kubernetes_deployment" "nginx" {
   depends_on = [kubernetes_namespace.remessa]
+
   metadata {
     name      = "nginx"
-    namespace = kubernetes_namespace.remessa.metadata.0.name
+    namespace = kubernetes_namespace.remessa.metadata[0].name
   }
+
   spec {
     replicas = 1
+
     selector {
       match_labels = {
         app = "nginx"
       }
     }
+
     template {
       metadata {
         labels = {
           app = "nginx"
         }
       }
+
       spec {
         container {
-          image = "nginx"
+          image = "nginx:stable-alpine"
           name  = "nginx-container"
+
           port {
             container_port = 80
           }
+
           resources {
             limits = {
               cpu    = "0.5"
@@ -46,23 +55,27 @@ resource "kubernetes_deployment" "nginx" {
             }
           }
         }
-      }      
+      }
     }
   }
 }
 
-//cria um serviço para expor o nginx
+# Service to expose Nginx via a LoadBalancer
 resource "kubernetes_service" "nginx_service" {
   depends_on = [kubernetes_deployment.nginx]
+
   metadata {
     name      = "nginx"
-    namespace = kubernetes_namespace.remessa.metadata.0.name
+    namespace = kubernetes_namespace.remessa.metadata[0].name
   }
+
   spec {
     selector = {
-      app = kubernetes_deployment.nginx.spec.0.template.0.metadata.0.labels.app
+      app = kubernetes_deployment.nginx.spec[0].template[0].metadata[0].labels.app
     }
+
     type = "LoadBalancer"
+
     port {
       node_port   = 30201
       port        = 80
@@ -71,27 +84,37 @@ resource "kubernetes_service" "nginx_service" {
   }
 }
 
-//cria um ingress para o serviço do nginx
-resource "kubernetes_ingress" "nginxingress" {
+# Ingress resource for the Nginx service
+# Updated from deprecated kubernetes_ingress to kubernetes_ingress_v1
+resource "kubernetes_ingress_v1" "nginxingress" {
   wait_for_load_balancer = false
+
   metadata {
-    name = "nginxingress"
+    name      = "nginxingress"
+    namespace = kubernetes_namespace.remessa.metadata[0].name
+
     annotations = {
       "kubernetes.io/ingress.class" = "nginx"
     }
   }
+
   spec {
     rule {
       http {
         path {
-          path = "/*"
+          path      = "/"
+          path_type = "Prefix"
+
           backend {
-            service_name = kubernetes_service.nginx_service.metadata.0.name
-            service_port = 80
+            service {
+              name = kubernetes_service.nginx_service.metadata[0].name
+              port {
+                number = 80
+              }
+            }
           }
         }
       }
     }
   }
 }
-

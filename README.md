@@ -1,65 +1,105 @@
-# teste_remessa
-Desafio proposto pela remessa para instanciar um container nginx no eks de forma automatizada via terraform.
-Antes da utilização desta automação é necessário atender alguns requisitos.
-São eles:
-0 - Esta automação foi desenvolvida utilizando uma máquina com sistema operacional linux, logo o passo a passo e todos os comandos serão baseados na utilização através do linux.
+# AWS EKS Cluster with Nginx on Terraform
 
-1 - Possuir uma conta na aws, caso não possua, é possível criar através do link abaixo:
-https://www.google.com/aclk?sa=L&ai=DChcSEwjq8_Pm7PLyAhUICJEKHTysBLAYABABGgJjZQ&sig=AOD64_14ANiCTAajp1T9x2hSYceo7EzdSA&q&adurl&ved=2ahUKEwiL1Orm7PLyAhXpq5UCHYBOCDwQ0Qx6BAgDEAE
+Automated provisioning of an Amazon EKS cluster with a containerized Nginx deployment, exposed via LoadBalancer and Ingress, fully managed through Terraform.
 
-2 - Criar uma conta no IAM para obter as credenciais:
-https://docs.aws.amazon.com/pt_br/IAM/latest/UserGuide/id_users_create.html
-Obs: Foi utilizado um usuário com permissões de administrador para essa automação, necessário
-ficar atento pois caso as permissões sejam diferentes, podem ocorrer problemas.
+## Architecture
 
-3 - Possuir as credenciais devidamente configuradas na máquina:
-https://docs.aws.amazon.com/pt_br/rekognition/latest/dg/setup-awscli-sdk.html
-Vale a pena conferir também a instalação do AWS CLI
-https://docs.aws.amazon.com/pt_br/cli/latest/userguide/install-cliv2-linux.html
+This stack provisions the following AWS and Kubernetes resources:
 
-4 - Ter o terraform instalado na máquina
-https://learn.hashicorp.com/tutorials/terraform/install-cli
+**AWS Infrastructure:**
+- VPC (`172.16.0.0/16`) with DNS support enabled
+- Two public subnets across separate availability zones (`us-east-2a`, `us-east-2c`)
+- Internet Gateway with route table associations for both subnets
+- Security group with SSH and broad ingress/egress rules
 
-Para utilizar a automação, é necessário realizar o clone local deste repositório.
+**EKS Cluster:**
+- Amazon EKS `1.30` cluster using the [terraform-aws-modules/eks/aws](https://registry.terraform.io/modules/terraform-aws-modules/eks/aws) module (`~> 20.0`)
+- Managed node group with `t3.large` instances (1-3 nodes, auto-scaling)
 
-Após realizar o clone siga os passo abaixo:
+**Kubernetes Resources:**
+- Dedicated `remessa` namespace
+- Nginx Deployment with resource limits (0.5 CPU / 512Mi memory)
+- LoadBalancer Service exposing port 80
+- Ingress resource routing HTTP traffic to the Nginx service
 
-1. Abra o arquivo variables.tf
-1.1. Este arquivo é onde se encontram todas as váriaveis utilizadas nos módulos do terraform.
-1.2. É necessário modificar a variável credentials indicando o local onde estão as credenciais para acesso a aws.
+## Prerequisites
 
-2. Execute o comando "$terraform init" para instalar os módulos e as dependencias do terraform e deixa-lo pronto para execução.
+- [Terraform](https://developer.hashicorp.com/terraform/install) >= 1.3
+- [AWS CLI](https://docs.aws.amazon.com/cli/latest/userguide/getting-started-install.html) configured with valid credentials
+- [kubectl](https://kubernetes.io/docs/tasks/tools/)
+- AWS IAM user/role with permissions to manage EKS, VPC, EC2, and IAM resources
 
-3. Execute o comando terraform plan para verificar se está tudo pronto para utilizar o terraform.
+## Usage
 
-4. Execute o terraform Apply e digite yes para executar o terraform.
+### 1. Clone and configure
 
-5. Após a construção o terraform irá indicar um output com o "hostname" do loadbalancer.
-Aguarde alguns minutos (aproximadamente 2 minutos)
-e cole o endereço no navegador para acessar a pagina principal do nginx instanciada no container criado.
-5.1. É importante salientar que a saida acontecerá no seguinte formato:
-Apply complete! Resources: 35 added, 0 changed, 0 destroyed.
+```sh
+git clone https://github.com/jvitoroliv/teste_remessa.git
+cd teste_remessa
+```
 
-Outputs:
+Review `variables.tf` and adjust defaults as needed (region, cluster name, AWS profile).
 
-load_balancer_hostname = tolist([
-  {
-    "load_balancer" = tolist([
-      {
-        "ingress" = tolist([
-          {
-            "hostname" = "Endereço_esperado.us-east-2.elb.amazonaws.com"
-            "ip" = ""
-          },
-        ])
-      },
-    ])
-  },
-])
+### 2. Initialize Terraform
 
-O valor que deve ser utilizado no navegador para acessar o nginx é o valor entre aspas após "hostname" =
+```sh
+terraform init
+```
 
-Obs: Para executar o comando terraform destroy, é necessário acessar o arquivo kubernetes.tf e comentar o 
-depends_on contido no resource "kubernetes_namespace" "remessa" que aguarda o module.eks ser criado.
+### 3. Review the execution plan
 
+```sh
+terraform plan
+```
 
+### 4. Apply the configuration
+
+```sh
+terraform apply
+```
+
+Type `yes` to confirm. The EKS cluster creation typically takes 10-15 minutes.
+
+### 5. Configure kubectl
+
+After the stack is created, update your kubeconfig to interact with the cluster:
+
+```sh
+aws eks --region us-east-2 update-kubeconfig --name teste_remessa
+```
+
+### 6. Access Nginx
+
+The `load_balancer_hostname` output displays the LoadBalancer address. Wait approximately 2 minutes for DNS propagation, then open the hostname in a browser to see the Nginx welcome page.
+
+```sh
+terraform output load_balancer_hostname
+```
+
+### Destroying the stack
+
+Before running `terraform destroy`, you must comment out the `depends_on` block in the `kubernetes_namespace` resource (`kubernetes.tf`). The EKS module must be destroyed before the namespace resource attempts cleanup, and the explicit dependency causes a circular reference during destruction.
+
+```sh
+# 1. Comment out depends_on in kubernetes_namespace.remessa (kubernetes.tf)
+# 2. Then run:
+terraform destroy
+```
+
+## Variables
+
+| Name | Description | Default |
+|------|-------------|---------|
+| `region` | AWS region where resources will be created | `us-east-2` |
+| `profile` | AWS CLI profile used for authentication | `default` |
+| `cluster_name` | Name of the EKS cluster | `teste_remessa` |
+
+## Outputs
+
+| Name | Description |
+|------|-------------|
+| `load_balancer_hostname` | Hostname of the LoadBalancer exposing the Nginx service |
+
+## Context
+
+Built as a hiring assessment for Remessa Online (Bee Tech) demonstrating end-to-end EKS provisioning and Kubernetes resource management with Terraform. The assessment required automating the deployment of an Nginx container on EKS. Led to a final job offer.

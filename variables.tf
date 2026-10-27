@@ -1,20 +1,19 @@
-//Configuração das variáveis utilizadas pelos modulos do terraform
+# Variables used by Terraform modules
+
 variable "region" {
-  description = "Define em qual região a instancia será criada"
+  description = "AWS region where resources will be created"
+  type        = string
   default     = "us-east-2"
 }
 
-variable "credentials" {
-  description = "local das credenciais utilizadas para acessar a aws"
-  default     = "/home/{USER}/.aws/credentials"
-}
-
 variable "profile" {
-  description = "Profile de acesso utilizado para acessar a aws"
+  description = "AWS CLI profile used for authentication"
+  type        = string
   default     = "default"
 }
 
 variable "cluster_name" {
-  description = "Nome do cluster a ser criado na aws"
+  description = "Name of the EKS cluster to be created"
+  type        = string
   default     = "teste_remessa"
 }
